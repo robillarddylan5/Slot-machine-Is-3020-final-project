@@ -1,0 +1,379 @@
+import random
+import tkinter as tk
+from tkinter import font as tkfont
+
+# ── Game Constants ──────────────────────────────────────────────────────────
+SYMBOLS = ["🍇", "🍋", "🍎", "🍍", "🔔", "💎"]
+
+SYMBOL_POINTS = {
+    "🍇": 5, "🍋": 8, "🍎": 12,
+    "🍍": 20, "🔔": 40, "💎": 100
+}
+
+SYMBOL_WEIGHTS = {
+    "🍇": 40, "🍋": 30, "🍎": 20,
+    "🍍": 10, "🔔": 5,  "💎": 1
+}
+
+STARTING_CREDITS = 100
+MAX_BET         = 20
+WIN_GOAL        = 10000
+
+# ── Colours ─────────────────────────────────────────────────────────────────
+BG          = "#1a1a2e"
+PANEL       = "#16213e"
+REEL_BG     = "#0f3460"
+ACCENT      = "#e94560"
+GOLD        = "#f5a623"
+WIN_GLOW    = "#00ff88"
+TEXT_LIGHT  = "#eaeaea"
+TEXT_DIM    = "#8888aa"
+BTN_SPIN    = "#e94560"
+BTN_HOVER   = "#ff6b6b"
+
+# ── Logic helpers ────────────────────────────────────────────────────────────
+def spin_reels():
+    pop = list(SYMBOL_WEIGHTS.keys())
+    wts = list(SYMBOL_WEIGHTS.values())
+    return [random.choices(pop, weights=wts, k=1)[0] for _ in range(3)]
+
+def calculate_points(reels, bet):
+    a, b, c = reels
+    if a == b == c:
+        return bet * SYMBOL_POINTS[a] * 3
+    if a == b or a == c:
+        return bet * SYMBOL_POINTS[a] * 1.5
+    if b == c:
+        return bet * SYMBOL_POINTS[b] * 1.5
+    return 0
+
+
+# ── Main App ─────────────────────────────────────────────────────────────────
+class SlotMachineApp(tk.Tk):
+    def __init__(self):
+        super().__init__()
+        self.title("🎰  Python Slot Machine")
+        self.resizable(False, False)
+        self.configure(bg=BG)
+
+        # game state
+        self.credits      = STARTING_CREDITS
+        self.rounds       = 0
+        self.total_won    = 0
+        self.biggest_win  = 0
+        self.spinning     = False
+
+        # reel animation state
+        self._reel_symbols = ["🍇", "🍇", "🍇"]   # currently displayed
+        self._final_reels  = []
+        self._spin_ticks   = [0, 0, 0]
+        self._spin_delays  = [0, 8, 16]             # reel stop offsets (ticks)
+        self._total_ticks  = 26
+
+        self._build_ui()
+
+    # ── UI construction ──────────────────────────────────────────────────────
+    def _build_ui(self):
+        pad = dict(padx=20, pady=10)
+
+        # ── Title bar
+        title_frame = tk.Frame(self, bg=BG)
+        title_frame.pack(fill="x", **pad)
+        tk.Label(title_frame, text="🎰  SLOT MACHINE",
+                 font=("Arial Black", 22, "bold"),
+                 bg=BG, fg=GOLD).pack()
+        tk.Label(title_frame, text="Reach 10,000 credits to beat the machine!",
+                 font=("Arial", 10), bg=BG, fg=TEXT_DIM).pack()
+
+        # ── Credits display
+        self.credits_var = tk.StringVar(value=f"Credits: {self.credits}")
+        tk.Label(self, textvariable=self.credits_var,
+                 font=("Arial Black", 16), bg=BG, fg=GOLD).pack(pady=(4, 0))
+
+        # ── Reel frame
+        reel_outer = tk.Frame(self, bg=PANEL, bd=3, relief="ridge")
+        reel_outer.pack(padx=30, pady=14)
+
+        self.reel_frames = []
+        self.reel_labels = []
+        for i in range(3):
+            f = tk.Frame(reel_outer, bg=REEL_BG, width=110, height=110,
+                         bd=2, relief="groove")
+            f.pack(side="left", padx=8, pady=12)
+            f.pack_propagate(False)
+            lbl = tk.Label(f, text="🍇", font=("Arial", 46),
+                           bg=REEL_BG, fg=TEXT_LIGHT)
+            lbl.place(relx=0.5, rely=0.5, anchor="center")
+            self.reel_frames.append(f)
+            self.reel_labels.append(lbl)
+
+        # ── Result message
+        self.result_var = tk.StringVar(value="Place your bet and spin!")
+        self.result_label = tk.Label(self, textvariable=self.result_var,
+                                     font=("Arial", 13, "bold"),
+                                     bg=BG, fg=TEXT_LIGHT)
+        self.result_label.pack()
+
+        # ── Bet controls
+        bet_frame = tk.Frame(self, bg=BG)
+        bet_frame.pack(pady=8)
+
+        tk.Label(bet_frame, text="Bet:", font=("Arial", 12),
+                 bg=BG, fg=TEXT_LIGHT).pack(side="left", padx=(0, 6))
+
+        self.bet_var = tk.IntVar(value=5)
+        self.bet_slider = tk.Scale(
+            bet_frame, from_=1, to=MAX_BET,
+            orient="horizontal", variable=self.bet_var,
+            length=220, bg=PANEL, fg=GOLD,
+            troughcolor=REEL_BG, highlightthickness=0,
+            font=("Arial", 10), showvalue=True,
+            sliderlength=18, activebackground=ACCENT
+        )
+        self.bet_slider.pack(side="left")
+
+        # ── Spin button
+        self.spin_btn = tk.Button(
+            self, text="S P I N",
+            font=("Arial Black", 14),
+            bg=BTN_SPIN, fg="white", activebackground=BTN_HOVER,
+            relief="flat", cursor="hand2", padx=30, pady=10,
+            command=self._on_spin
+        )
+        self.spin_btn.pack(pady=10)
+        self.spin_btn.bind("<Enter>", lambda e: self.spin_btn.config(bg=BTN_HOVER))
+        self.spin_btn.bind("<Leave>", lambda e: self.spin_btn.config(bg=BTN_SPIN))
+
+        # ── Stats bar
+        stats_frame = tk.Frame(self, bg=PANEL)
+        stats_frame.pack(fill="x", padx=30, pady=(4, 14))
+
+        self.rounds_var   = tk.StringVar(value="Rounds: 0")
+        self.won_var      = tk.StringVar(value="Total Won: 0")
+        self.best_var     = tk.StringVar(value="Best Win: 0")
+
+        for var in (self.rounds_var, self.won_var, self.best_var):
+            tk.Label(stats_frame, textvariable=var,
+                     font=("Arial", 9), bg=PANEL, fg=TEXT_DIM).pack(
+                     side="left", expand=True)
+
+        # ── Paytable button
+        tk.Button(self, text="📋  View Paytable",
+                  font=("Arial", 9), bg=PANEL, fg=TEXT_DIM,
+                  relief="flat", cursor="hand2",
+                  command=self._show_paytable).pack(pady=(0, 12))
+
+    # ── Spin logic ────────────────────────────────────────────────────────────
+    def _on_spin(self):
+        if self.spinning:
+            return
+        bet = self.bet_var.get()
+        if bet > self.credits:
+            self._show_popup("⚠️  Not Enough Credits",
+                             f"You only have {self.credits} credits.\nLower your bet!",
+                             color=ACCENT)
+            return
+
+        self.spinning = True
+        self.spin_btn.config(state="disabled")
+        self.credits -= bet
+
+        # pick final result now
+        self._final_reels = spin_reels()
+        self._spin_ticks  = [0, 0, 0]
+        self._reset_reel_colors()
+        self.result_var.set("Spinning…")
+        self._animate(bet)
+
+    def _animate(self, bet):
+        """Tick-based reel animation — each reel stops at its own delay."""
+        all_done = True
+        for i in range(3):
+            stop_at = self._total_ticks - self._spin_delays[i]
+            if self._spin_ticks[i] < stop_at:
+                # still spinning — show random symbol
+                self.reel_labels[i].config(
+                    text=random.choice(SYMBOLS),
+                    bg=REEL_BG, fg=TEXT_LIGHT
+                )
+                self.reel_frames[i].config(bg=REEL_BG)
+                self._spin_ticks[i] += 1
+                all_done = False
+            else:
+                # landed — show final symbol
+                self.reel_labels[i].config(text=self._final_reels[i])
+
+        if not all_done:
+            self.after(60, lambda: self._animate(bet))
+        else:
+            self._finish_spin(bet)
+
+    def _finish_spin(self, bet):
+        points = calculate_points(self._final_reels, bet)
+        points = int(points)
+        self.credits += points
+        self.rounds  += 1
+
+        if points > 0:
+            self.total_won  += points
+            self.biggest_win = max(self.biggest_win, points)
+            self._light_up_reels()
+            self.result_var.set(f"🎉  +{points} credits!")
+            self.result_label.config(fg=WIN_GLOW)
+            # big win popup for 3-of-a-kind rares
+            if self._final_reels[0] == self._final_reels[1] == self._final_reels[2]:
+                sym = self._final_reels[0]
+                if sym in ("🔔", "💎"):
+                    self.after(400, lambda: self._show_popup(
+                        "🎰  JACKPOT!",
+                        f"{sym} {sym} {sym}\n+{points} credits!",
+                        color=GOLD, big=True
+                    ))
+        else:
+            self.result_var.set("No match — better luck next time.")
+            self.result_label.config(fg=TEXT_DIM)
+
+        self._update_stats()
+        self.credits_var.set(f"Credits: {self.credits}")
+        self.spinning = False
+        self.spin_btn.config(state="normal")
+
+        # end-game checks
+        if self.credits >= WIN_GOAL:
+            self.after(600, lambda: self._show_popup(
+                "🏆  YOU WIN!",
+                f"You reached {self.credits} credits!\nYou beat the machine!",
+                color=GOLD, big=True, end=True
+            ))
+        elif self.credits <= 0:
+            self.after(600, lambda: self._show_popup(
+                "💸  GAME OVER",
+                "You ran out of credits!\nBetter luck next time.",
+                color=ACCENT, end=True
+            ))
+
+    def _light_up_reels(self):
+        """Flash reels green to indicate a win."""
+        for i in range(3):
+            self.reel_frames[i].config(bg=WIN_GLOW)
+            self.reel_labels[i].config(bg=WIN_GLOW, fg="#1a1a2e")
+        self.after(700, self._reset_reel_colors)
+
+    def _reset_reel_colors(self):
+        for i in range(3):
+            self.reel_frames[i].config(bg=REEL_BG)
+            self.reel_labels[i].config(bg=REEL_BG, fg=TEXT_LIGHT)
+
+    def _update_stats(self):
+        self.rounds_var.set(f"Rounds: {self.rounds}")
+        self.won_var.set(f"Total Won: {self.total_won}")
+        self.best_var.set(f"Best Win: {self.biggest_win}")
+
+    # ── Popup window ──────────────────────────────────────────────────────────
+    def _show_popup(self, title, message, color=GOLD, big=False, end=False):
+        popup = tk.Toplevel(self)
+        popup.title(title)
+        popup.resizable(False, False)
+        popup.configure(bg=BG)
+        popup.grab_set()          # modal
+        popup.attributes("-topmost", True)
+
+        # Centre over main window
+        self.update_idletasks()
+        x = self.winfo_x() + self.winfo_width()  // 2 - 180
+        y = self.winfo_y() + self.winfo_height() // 2 - 120
+        popup.geometry(f"360x240+{x}+{y}")
+
+        # Coloured top bar
+        bar = tk.Frame(popup, bg=color, height=6)
+        bar.pack(fill="x")
+
+        tk.Label(popup, text=title,
+                 font=("Arial Black", 16 if big else 13),
+                 bg=BG, fg=color).pack(pady=(18, 6))
+
+        tk.Label(popup, text=message,
+                 font=("Arial", 12), bg=BG, fg=TEXT_LIGHT,
+                 justify="center").pack(pady=6)
+
+        if end:
+            def restart():
+                popup.destroy()
+                self._restart()
+            tk.Button(popup, text="Play Again",
+                      font=("Arial", 11, "bold"),
+                      bg=color, fg=BG, relief="flat",
+                      padx=20, pady=8, cursor="hand2",
+                      command=restart).pack(pady=14)
+        else:
+            tk.Button(popup, text="Continue",
+                      font=("Arial", 11, "bold"),
+                      bg=color, fg=BG, relief="flat",
+                      padx=20, pady=8, cursor="hand2",
+                      command=popup.destroy).pack(pady=14)
+
+    # ── Paytable popup ────────────────────────────────────────────────────────
+    def _show_paytable(self):
+        popup = tk.Toplevel(self)
+        popup.title("Paytable")
+        popup.resizable(False, False)
+        popup.configure(bg=BG)
+        popup.grab_set()
+        self.update_idletasks()
+        x = self.winfo_x() + self.winfo_width()  // 2 - 170
+        y = self.winfo_y() + self.winfo_height() // 2 - 170
+        popup.geometry(f"340x360+{x}+{y}")
+
+        tk.Label(popup, text="📋  Paytable",
+                 font=("Arial Black", 15), bg=BG, fg=GOLD).pack(pady=(14, 4))
+
+        rows = [
+            ("Symbol", "Pts", "Rarity"),
+            ("🍇 Grape",  "5",   "Very Common"),
+            ("🍋 Lemon",  "8",   "Common"),
+            ("🍎 Apple",  "12",  "Medium"),
+            ("🍍 Pineapple","20","Uncommon"),
+            ("🔔 Bell",   "40",  "Rare"),
+            ("💎 Diamond","100", "Extremely Rare"),
+        ]
+        tbl = tk.Frame(popup, bg=PANEL, bd=1, relief="ridge")
+        tbl.pack(padx=18, pady=6, fill="x")
+        for r, row in enumerate(rows):
+            for c, val in enumerate(row):
+                fg = GOLD if r == 0 else TEXT_LIGHT
+                tk.Label(tbl, text=val, font=("Arial", 10, "bold" if r==0 else "normal"),
+                         bg=PANEL, fg=fg, width=14, anchor="w",
+                         padx=6, pady=3).grid(row=r, column=c, sticky="w")
+
+        rules = (
+            "3 of a kind  →  bet × pts × 3\n"
+            "2 of a kind  →  bet × pts × 1.5\n"
+            "No match     →  0 credits"
+        )
+        tk.Label(popup, text=rules, font=("Arial", 10),
+                 bg=BG, fg=TEXT_DIM, justify="left").pack(pady=8, padx=18, anchor="w")
+
+        tk.Button(popup, text="Close", font=("Arial", 10, "bold"),
+                  bg=ACCENT, fg="white", relief="flat",
+                  padx=16, pady=6, cursor="hand2",
+                  command=popup.destroy).pack(pady=(4, 14))
+
+    # ── Restart ───────────────────────────────────────────────────────────────
+    def _restart(self):
+        self.credits     = STARTING_CREDITS
+        self.rounds      = 0
+        self.total_won   = 0
+        self.biggest_win = 0
+        self.credits_var.set(f"Credits: {self.credits}")
+        self.result_var.set("Place your bet and spin!")
+        self.result_label.config(fg=TEXT_LIGHT)
+        self._reset_reel_colors()
+        for lbl in self.reel_labels:
+            lbl.config(text="🍇")
+        self._update_stats()
+        self.spin_btn.config(state="normal")
+
+
+if __name__ == "__main__":
+    app = SlotMachineApp()
+    app.mainloop()
