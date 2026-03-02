@@ -1,0 +1,10 @@
+- [x] Create main Python file and print introduction
+- [x] Show points system rules to the player
+- [x] Implement basic game loop with credits
+- [x] Add slot machine symbols and random spins
+- [x] Implement scoring rules for matches
+- [x] Add betting system
+- [x] Allow player to quit the game
+- [x] Add weight for each symbol
+- [x] Add end-of-game summary (total rounds played, biggest win, etc.)
+- [x] Add extra polish (clearer messages, potential bonus features)
