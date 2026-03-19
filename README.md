@@ -105,9 +105,3 @@ hands-on experience with:
 **Dylan Robillard**  
 [github.com/robillarddylan5](https://github.com/robillarddylan5)
 ```
-
----
-
-Once you've added it, commit with:
-```
-Add project README with features, paytable, and setup instructions
